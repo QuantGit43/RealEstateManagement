@@ -1,190 +1,190 @@
-# Звіт до лабораторної роботи №1
+# Lab 1 Report
 
-**Тема:** Система управління нерухомістю — проєктування й реалізація реляційної БД, серверна логіка, доступ з коду через Repository + Unit of Work.
+**Topic:** Real Estate Management System — design and implementation of a relational database, server-side logic, and data access from code via Repository + Unit of Work.
 
-**Автор:** Юрій Саплюков
-**СУБД:** Microsoft SQL Server 2025 (LocalDB)
-**Код:** C# / .NET 10, ASP.NET Core Web API, Dapper
+**Author:** Yurii Saplyukov
+**DBMS:** Microsoft SQL Server 2025 (LocalDB)
+**Code:** C# / .NET 10, ASP.NET Core Web API, Dapper
 
-## Зміст
-1. [Предметна область і вимоги](#1-предметна-область-і-вимоги)
-2. [Схема бази даних](#2-схема-бази-даних)
-3. [Сутності, soft delete та аудит](#3-сутності-soft-delete-та-аудит)
-4. [Реалізація в СУБД](#4-реалізація-в-субд)
-5. [Збережені процедури, функції, тригери, View](#5-збережені-процедури-функції-тригери-view)
-6. [Індекси](#6-індекси)
+## Contents
+1. [Domain and requirements](#1-domain-and-requirements)
+2. [Database schema](#2-database-schema)
+3. [Entities, soft delete and audit](#3-entities-soft-delete-and-audit)
+4. [Implementation in the DBMS](#4-implementation-in-the-dbms)
+5. [Stored procedures, functions, triggers, views](#5-stored-procedures-functions-triggers-views)
+6. [Indexes](#6-indexes)
 7. [Repository + Unit of Work](#7-repository--unit-of-work)
-8. [Тестування](#8-тестування)
-9. [Висновки](#9-висновки)
+8. [Testing](#8-testing)
+9. [Conclusions](#9-conclusions)
 
 ---
 
-## 1. Предметна область і вимоги
+## 1. Domain and requirements
 
-Система обслуговує агентство нерухомості: облік об'єктів, оголошення про продаж та оренду, перегляди, укладання договорів, облік платежів, заявки на ремонт і відгуки клієнтів.
+The system serves a real estate agency: property records, sale and rent listings, viewings, contracts, payments, maintenance requests and client reviews.
 
-**Ролі:**
-- **Admin** — керує довідниками й користувачами;
-- **Manager** — контролює угоди, платежі, звіти;
-- **Agent** — веде оголошення, перегляди, укладає договори;
-- **Owner**, **Client** — зовнішні особи (власник, покупець/орендар).
+**Roles:**
+- **Admin** — manages reference data and users;
+- **Manager** — oversees deals, payments, reports;
+- **Agent** — maintains listings and viewings, signs contracts;
+- **Owner**, **Client** — external parties (property owner, buyer/tenant).
 
-**Ключові вимоги:**
-1. Об'єкт має тип, адресу (місто → район → адреса), площу, кімнати, зручності, фото.
-2. Оголошення: продаж або оренда, ціна, відповідальний агент, статус `Active / Reserved / Closed`.
-3. Кожна зміна ціни автоматично потрапляє в історію цін.
-4. Договір укладається за активним оголошенням; оголошення закривається, комісія агента рахується автоматично.
-5. Платежі за договором: графік і факт оплати, контроль боргу та прострочень; договір купівлі автоматично завершується після повної оплати.
-6. Дані об'єктів, оголошень, клієнтів, власників і агентів не видаляються фізично (soft delete).
-7. Для ключових сутностей зберігаються дата та автор останньої зміни.
-8. Застосунок працює з БД **тільки** через збережені процедури (запис) і View / табличні функції (читання).
+**Key requirements:**
+1. A property has a type, an address (city → district → address), area, rooms, amenities and photos.
+2. A listing is for sale or rent, with a price, a responsible agent and a status `Active / Reserved / Closed`.
+3. Every price change goes to the price history automatically.
+4. A contract is signed for an active listing; the listing is closed and the agent's commission is calculated automatically.
+5. Contract payments: schedule and actual payment, debt and overdue tracking; a sale contract is completed automatically once fully paid.
+6. Properties, listings, clients, owners and agents are never physically deleted (soft delete).
+7. Key entities store the date and the author of the last change.
+8. The application accesses the database **only** through stored procedures (writes) and views / table-valued functions (reads).
 
-Повний опис — [requirements.md](requirements.md).
+Full description — [requirements.md](requirements.md).
 
-## 2. Схема бази даних
+## 2. Database schema
 
-ER-діаграма побудована в [dbdiagram.io](https://dbdiagram.io) з опису [schema.dbml](schema.dbml) (його можна вставити на dbdiagram.io для інтерактивного перегляду).
+The ER diagram was built in [dbdiagram.io](https://dbdiagram.io) from [schema.dbml](schema.dbml) (paste it into dbdiagram.io for an interactive view).
 
-![ER-діаграма](er-diagram.webp)
+![ER diagram](er-diagram.webp)
 
-**Типи зв'язків:**
+**Relationship types:**
 
-| Зв'язок | Тип | Приклад |
+| Relationship | Type | Example |
 |---|---|---|
-| Users → Agents | 1:1 | агент — це користувач з профілем (ліцензія, ставка комісії); `UQ_Agents_User` |
-| Listings → Contracts | 1:1 | одне оголошення — щонайбільше один договір; `UQ_Contracts_Listing` |
-| Properties ↔ Amenities | M:N | через таблицю `PropertyAmenities` зі складеним PK |
-| Cities → Districts → Addresses → Properties | 1:N (ланцюжок) | нормалізація адреси |
+| Users → Agents | 1:1 | an agent is a user with a profile (license, commission rate); `UQ_Agents_User` |
+| Listings → Contracts | 1:1 | one listing — at most one contract; `UQ_Contracts_Listing` |
+| Properties ↔ Amenities | M:N | via the `PropertyAmenities` table with a composite PK |
+| Cities → Districts → Addresses → Properties | 1:N (chain) | normalized address |
 | Properties → Listings, Listings → PriceHistory, Contracts → Payments | 1:N | |
-| Users → поля `CreatedBy / UpdatedBy / DeletedBy` | 1:N | автор зміни в аудит-полях |
+| Users → `CreatedBy / UpdatedBy / DeletedBy` columns | 1:N | author of a change in the audit columns |
 
-Усі зовнішні ключі — без каскадного видалення (`NO ACTION`): фізично видаляти пов'язані дані не можна, використовується soft delete.
+All foreign keys have no cascading delete (`NO ACTION`): related data cannot be deleted physically, soft delete is used instead.
 
-## 3. Сутності, soft delete та аудит
+## 3. Entities, soft delete and audit
 
-**20 таблиць** (мінімум за завданням — 15):
+**20 tables** (the assignment requires at least 15):
 
-| Група | Таблиці |
+| Group | Tables |
 |---|---|
-| Користувачі | `Roles`, `Users`, `Agents` |
-| Сторони угод | `Owners`, `Clients` |
-| Географія | `Cities`, `Districts`, `Addresses` |
-| Об'єкти | `PropertyTypes`, `Properties`, `Amenities`, `PropertyAmenities`, `PropertyPhotos` |
-| Оголошення | `Listings`, `PriceHistory`, `Viewings` |
-| Угоди | `Contracts`, `Payments` |
-| Обслуговування | `MaintenanceRequests`, `Reviews` |
+| Users | `Roles`, `Users`, `Agents` |
+| Deal parties | `Owners`, `Clients` |
+| Geography | `Cities`, `Districts`, `Addresses` |
+| Properties | `PropertyTypes`, `Properties`, `Amenities`, `PropertyAmenities`, `PropertyPhotos` |
+| Listings | `Listings`, `PriceHistory`, `Viewings` |
+| Deals | `Contracts`, `Payments` |
+| Maintenance | `MaintenanceRequests`, `Reviews` |
 
 **Soft delete** (`IsDeleted bit`, `DeletedAt`, `DeletedBy` → `Users`): `Agents`, `Owners`, `Clients`, `Properties`, `Listings`.
 
-**Аудит змін** (`CreatedAt`, `CreatedBy`, `UpdatedAt`, `UpdatedBy` → `Users`): `Clients`, `Properties`, `Listings`, `Contracts`, `Payments`.
+**Change audit** (`CreatedAt`, `CreatedBy`, `UpdatedAt`, `UpdatedBy` → `Users`): `Clients`, `Properties`, `Listings`, `Contracts`, `Payments`.
 
-**Оптимістичне блокування:** `Listings.RowVersion` (`rowversion`) — процедура зміни ціни відхиляє зміну, якщо запис встиг змінити інший користувач.
+**Optimistic locking:** `Listings.RowVersion` (`rowversion`) — the price-change procedure rejects the change if another user modified the row in the meantime.
 
-**Обмеження цілісності:** `CHECK` (ціна > 0, площа > 0, рейтинг 1–5, `EndDate >= StartDate`, перелік допустимих статусів і типів), `UNIQUE`, `DEFAULT`.
+**Integrity constraints:** `CHECK` (price > 0, area > 0, rating 1–5, `EndDate >= StartDate`, allowed statuses and types), `UNIQUE`, `DEFAULT`.
 
-## 4. Реалізація в СУБД
+## 4. Implementation in the DBMS
 
-Скрипти в папці [`sql/`](../sql) виконуються по порядку скриптом [`deploy.ps1`](../deploy.ps1), який перестворює БД з нуля:
+The scripts in [`sql/`](../sql) run in order via [`deploy.ps1`](../deploy.ps1), which recreates the database from scratch:
 
-| Скрипт | Вміст |
+| Script | Contents |
 |---|---|
-| `00_create_db.sql` | створення БД `RealEstateDb` |
-| `01_schema.sql` | 20 таблиць, PK, FK, CHECK, DEFAULT, UNIQUE |
-| `02_functions.sql` | скалярні функції |
-| `03_views.sql` | View і табличні функції |
-| `04_procedures.sql` | збережені процедури |
-| `05_triggers.sql` | тригери |
-| `06_indexes.sql` | індекси |
-| `07_seed.sql` | тестові дані (договори й платежі — через процедури, щоб спрацювали тригери) |
-| `99_tests.sql` | автоматичні перевірки бізнес-логіки |
+| `00_create_db.sql` | creates the `RealEstateDb` database |
+| `01_schema.sql` | 20 tables, PK, FK, CHECK, DEFAULT, UNIQUE |
+| `02_functions.sql` | scalar functions |
+| `03_views.sql` | views and table-valued functions |
+| `04_procedures.sql` | stored procedures |
+| `05_triggers.sql` | triggers |
+| `06_indexes.sql` | indexes |
+| `07_seed.sql` | test data (contracts and payments go through procedures so the triggers fire) |
+| `99_tests.sql` | automated business logic checks |
 
 ```powershell
 .\deploy.ps1 -Test
 ```
 
-## 5. Збережені процедури, функції, тригери, View
+## 5. Stored procedures, functions, triggers, views
 
-Усього **26 об'єктів** (мінімум — 10).
+**26 objects** in total (at least 10 required).
 
-### Функції (4)
+### Functions (4)
 
-| Функція | Тип | Призначення |
+| Function | Kind | Purpose |
 |---|---|---|
-| `fn_CalcCommission(@Amount, @Rate)` | скалярна | комісія агента від суми угоди |
-| `fn_GetContractDebt(@ContractId)` | скалярна | залишок боргу: сума договору мінус сплачені платежі |
-| `fn_PropertiesByCity(@CityId)` | таблична (inline) | активні об'єкти міста |
-| `fn_ListingsByAgent(@AgentId)` | таблична (inline) | оголошення агента |
+| `fn_CalcCommission(@Amount, @Rate)` | scalar | agent commission on the deal amount |
+| `fn_GetContractDebt(@ContractId)` | scalar | remaining debt: contract amount minus paid payments |
+| `fn_PropertiesByCity(@CityId)` | table-valued (inline) | active properties in a city |
+| `fn_ListingsByAgent(@AgentId)` | table-valued (inline) | an agent's listings |
 
-### View (6)
+### Views (6)
 
-| View | Що показує |
+| View | Shows |
 |---|---|
-| `vw_ActiveProperties` | об'єкти без soft-deleted з типом, адресою і власником |
-| `vw_ActiveListings` | оголошення без soft-deleted з об'єктом, містом і агентом |
-| `vw_ContractDetails` | договори з учасниками, сплаченою сумою і боргом |
-| `vw_PaymentsByContract` | платежі з клієнтом і ознакою оплати |
-| `vw_OverduePayments` | неоплачені платежі з минулим терміном |
-| `vw_AgentPerformance` | показники агентів: оголошення, угоди, комісія, рейтинг |
+| `vw_ActiveProperties` | non-deleted properties with type, address and owner |
+| `vw_ActiveListings` | non-deleted listings with property, city and agent |
+| `vw_ContractDetails` | contracts with parties, paid amount and debt |
+| `vw_PaymentsByContract` | payments with client and paid flag |
+| `vw_OverduePayments` | unpaid payments past their due date |
+| `vw_AgentPerformance` | agent metrics: listings, deals, commission, rating |
 
-### Збережені процедури (11)
+### Stored procedures (11)
 
-| Процедура | Що робить |
+| Procedure | What it does |
 |---|---|
-| `sp_Property_Create / Update` | створення й зміна об'єкта з аудитом |
-| `sp_Property_SoftDelete` | soft delete об'єкта разом з оголошеннями; заборонено при активному договорі |
-| `sp_Listing_Create` | нове оголошення; заборонено два активних оголошення одного типу на об'єкт |
-| `sp_Listing_UpdatePrice` | зміна ціни з перевіркою `RowVersion` |
-| `sp_Listing_SoftDelete` | soft delete оголошення |
-| `sp_Client_Create / SoftDelete` | клієнти |
-| `sp_Contract_Create` | договір за активним оголошенням: тип і агент з оголошення, комісія через `fn_CalcCommission`, оголошення закривається |
-| `sp_Payment_Register` | платіж або запланований платіж; переплата понад борг заборонена |
-| `sp_Payment_MarkPaid` | позначити запланований платіж сплаченим |
+| `sp_Property_Create / Update` | create and update a property with audit |
+| `sp_Property_SoftDelete` | soft delete a property together with its listings; not allowed with an active contract |
+| `sp_Listing_Create` | new listing; two active listings of the same type for one property are not allowed |
+| `sp_Listing_UpdatePrice` | price change with a `RowVersion` check |
+| `sp_Listing_SoftDelete` | soft delete a listing |
+| `sp_Client_Create / SoftDelete` | clients |
+| `sp_Contract_Create` | contract for an active listing: type and agent come from the listing, commission via `fn_CalcCommission`, the listing is closed |
+| `sp_Payment_Register` | payment or scheduled payment; overpaying the debt is not allowed |
+| `sp_Payment_MarkPaid` | mark a scheduled payment as paid |
 
-Помилки бізнес-правил повертаються через `THROW` з кодами: `50400` — невалідні дані, `50404` — не знайдено, `50409` — конфлікт стану. Web API перетворює їх на HTTP 400 / 404 / 409.
+Business rule violations are raised with `THROW` and codes: `50400` — invalid data, `50404` — not found, `50409` — state conflict. The Web API maps them to HTTP 400 / 404 / 409.
 
-Процедури з кількома змінами (`sp_Property_SoftDelete`, `sp_Contract_Create`) працюють і самостійно, і всередині транзакції застосунку: якщо транзакція вже відкрита, використовується `SAVE TRANSACTION`, тож помилка в процедурі не руйнує зовнішню транзакцію Unit of Work.
+Procedures with several changes (`sp_Property_SoftDelete`, `sp_Contract_Create`) work both on their own and inside an application transaction: if a transaction is already open, they use `SAVE TRANSACTION`, so an error inside the procedure does not break the outer Unit of Work transaction.
 
-### Тригери (5)
+### Triggers (5)
 
-| Тригер | Подія | Логіка |
+| Trigger | Event | Logic |
 |---|---|---|
-| `trg_Listings_PriceHistory` | AFTER UPDATE на `Listings` | при зміні ціни пише рядок у `PriceHistory` (стара/нова ціна, автор) |
-| `trg_Properties_InsteadOfDelete` | INSTEAD OF DELETE на `Properties` | `DELETE` перетворюється на soft delete об'єкта та його оголошень |
-| `trg_Listings_InsteadOfDelete` | INSTEAD OF DELETE на `Listings` | `DELETE` перетворюється на soft delete |
-| `trg_Contracts_SetUpdatedAt` | AFTER UPDATE на `Contracts` | оновлює `UpdatedAt` при будь-якій зміні договору |
-| `trg_Payments_CompleteContract` | AFTER INSERT, UPDATE на `Payments` | договір купівлі стає `Completed`, коли борг дорівнює нулю |
+| `trg_Listings_PriceHistory` | AFTER UPDATE on `Listings` | on a price change, writes a row to `PriceHistory` (old/new price, author) |
+| `trg_Properties_InsteadOfDelete` | INSTEAD OF DELETE on `Properties` | turns `DELETE` into a soft delete of the property and its listings |
+| `trg_Listings_InsteadOfDelete` | INSTEAD OF DELETE on `Listings` | turns `DELETE` into a soft delete |
+| `trg_Contracts_SetUpdatedAt` | AFTER UPDATE on `Contracts` | updates `UpdatedAt` on any contract change |
+| `trg_Payments_CompleteContract` | AFTER INSERT, UPDATE on `Payments` | a sale contract becomes `Completed` when the debt reaches zero |
 
-## 6. Індекси
+## 6. Indexes
 
-| Тип | Індекс | Для чого |
+| Type | Index | Purpose |
 |---|---|---|
-| Clustered | PK кожної таблиці | фізичний порядок рядків за ключем |
-| Unique nonclustered | `UX_Users_Email`, `UX_Agents_LicenseNo` | унікальність логіна й ліцензії |
-| Filtered unique | `UX_Clients_Phone_Active … WHERE IsDeleted = 0` | телефон унікальний лише серед не видалених клієнтів |
-| Filtered nonclustered | `IX_Properties_Owner_Active`, `IX_Listings_Property_Active` (`WHERE IsDeleted = 0`) | запити працюють лише з активними рядками, індекс менший |
-| Composite + INCLUDE (покриваючий) | `IX_Listings_Status_Price (Status, Price) INCLUDE (PropertyId, AgentId, ListingType)` | пошук активних оголошень у діапазоні цін без звернення до таблиці |
-| Nonclustered по FK | 8 індексів (`IX_Contracts_Client`, `IX_Payments_Contract` тощо) | швидкі JOIN і перевірки FK |
-| Nonclustered columnstore | `NCCI_Payments (ContractId, Amount, DueDate, PaidAt)` | агрегатні звіти по платежах |
+| Clustered | PK of every table | physical row order by key |
+| Unique nonclustered | `UX_Users_Email`, `UX_Agents_LicenseNo` | unique login and license |
+| Filtered unique | `UX_Clients_Phone_Active … WHERE IsDeleted = 0` | phone is unique only among non-deleted clients |
+| Filtered nonclustered | `IX_Properties_Owner_Active`, `IX_Listings_Property_Active` (`WHERE IsDeleted = 0`) | queries touch only active rows, the index is smaller |
+| Composite + INCLUDE (covering) | `IX_Listings_Status_Price (Status, Price) INCLUDE (PropertyId, AgentId, ListingType)` | search active listings by price range without touching the table |
+| Nonclustered on FKs | 8 indexes (`IX_Contracts_Client`, `IX_Payments_Contract`, etc.) | fast JOINs and FK checks |
+| Nonclustered columnstore | `NCCI_Payments (ContractId, Amount, DueDate, PaidAt)` | aggregate payment reports |
 
-Використання індексів демонструється в кінці `99_tests.sql` через `SET STATISTICS IO ON`: кожен із трьох контрольних запитів читає 2 сторінки.
+Index usage is demonstrated at the end of `99_tests.sql` with `SET STATISTICS IO ON`: each of the three sample queries reads 2 pages.
 
 ## 7. Repository + Unit of Work
 
-Логічно пов'язаний ланцюжок сутностей: **Property → Listing → Contract → Payment**.
+The logically related chain of entities: **Property → Listing → Contract → Payment**.
 
 ```
 Controller ──> IUnitOfWork ──┬── IPropertyRepository ──> vw_ActiveProperties, fn_PropertiesByCity / sp_Property_*
                              ├── IListingRepository  ──> vw_ActiveListings, fn_ListingsByAgent / sp_Listing_*
                              ├── IContractRepository ──> vw_ContractDetails / sp_Contract_Create
                              └── IPaymentRepository  ──> vw_PaymentsByContract, vw_OverduePayments / sp_Payment_*
-                  одне SqlConnection + одна SqlTransaction на всі репозиторії
+                  one SqlConnection + one SqlTransaction shared by all repositories
 ```
 
-- [`UnitOfWork.cs`](../src/RealEstate.Api/Data/UnitOfWork.cs) — відкриває одне з'єднання, `BeginTransaction / Commit / Rollback`; незакомічена транзакція відкочується при `Dispose`.
-- Репозиторії ([`Data/Repositories`](../src/RealEstate.Api/Data/Repositories)) отримують спільні з'єднання й транзакцію від UoW. **Читання** — тільки `SELECT` з View / табличних функцій, **запис** — тільки `CommandType.StoredProcedure`. Прямих запитів до таблиць немає.
-- Користувач для аудиту передається в кожну процедуру параметром `@UserId` (в API — із заголовка `X-User-Id`).
+- [`UnitOfWork.cs`](../src/RealEstate.Api/Data/UnitOfWork.cs) opens one connection and provides `BeginTransaction / Commit / Rollback`; an uncommitted transaction is rolled back on `Dispose`.
+- Repositories ([`Data/Repositories`](../src/RealEstate.Api/Data/Repositories)) share the connection and the transaction of the UoW. **Reads** are only `SELECT`s from views / table-valued functions, **writes** are only `CommandType.StoredProcedure`. There are no direct queries to tables.
+- The user for the audit columns is passed to every procedure as `@UserId` (in the API — from the `X-User-Id` header).
 
-Демонстрація — `POST /api/deals` ([`DealsController.cs`](../src/RealEstate.Api/Controllers/DealsController.cs)): чотири процедури в одній транзакції.
+Demo — `POST /api/deals` ([`DealsController.cs`](../src/RealEstate.Api/Controllers/DealsController.cs)): four procedures in one transaction.
 
 ```csharp
 uow.BeginTransaction();
@@ -204,54 +204,54 @@ catch
 }
 ```
 
-Якщо будь-який крок падає (наприклад, `sp_Payment_Register` відхиляє переплату), відкочуються всі чотири записи.
+If any step fails (for example, `sp_Payment_Register` rejects an overpayment), all four writes are rolled back.
 
-**Ендпоінти API** (Swagger: `http://localhost:5118/swagger`):
+**API endpoints** (Swagger: `http://localhost:5118/swagger`):
 
-| Метод | Шлях | Дія |
+| Method | Path | Action |
 |---|---|---|
-| GET | `/api/properties/{id}`, `/api/properties?cityId=` | об'єкт / об'єкти міста |
-| POST, PUT, DELETE | `/api/properties`, `/api/properties/{id}` | створення, зміна, soft delete |
-| GET | `/api/listings`, `/api/listings?agentId=`, `/api/listings/{id}` | оголошення |
-| POST | `/api/properties/{id}/listings` | нове оголошення |
-| PUT | `/api/listings/{id}/price` | зміна ціни (з `RowVersion`) |
+| GET | `/api/properties/{id}`, `/api/properties?cityId=` | a property / properties in a city |
+| POST, PUT, DELETE | `/api/properties`, `/api/properties/{id}` | create, update, soft delete |
+| GET | `/api/listings`, `/api/listings?agentId=`, `/api/listings/{id}` | listings |
+| POST | `/api/properties/{id}/listings` | new listing |
+| PUT | `/api/listings/{id}/price` | price change (with `RowVersion`) |
 | DELETE | `/api/listings/{id}` | soft delete |
-| POST | `/api/listings/{id}/contract` | договір |
-| GET | `/api/contracts/{id}`, `/api/contracts/{id}/payments`, `/api/payments/overdue` | договір, платежі, прострочені |
-| POST, PUT | `/api/contracts/{id}/payments`, `/api/payments/{id}/paid` | платіж, оплата |
-| POST | `/api/deals` | угода "під ключ" в одній транзакції |
+| POST | `/api/listings/{id}/contract` | contract |
+| GET | `/api/contracts/{id}`, `/api/contracts/{id}/payments`, `/api/payments/overdue` | contract, payments, overdue payments |
+| POST, PUT | `/api/contracts/{id}/payments`, `/api/payments/{id}/paid` | payment, mark paid |
+| POST | `/api/deals` | a turnkey deal in one transaction |
 
-## 8. Тестування
+## 8. Testing
 
-**SQL-перевірки** (`sql/99_tests.sql`, виконуються в транзакції з `ROLLBACK`, дані не змінюються) — 9/9 пройдено:
+**SQL checks** (`sql/99_tests.sql`, run inside a transaction with `ROLLBACK`, data is not changed) — 9/9 passed:
 
-| # | Що перевіряється |
+| # | What is checked |
 |---|---|
-| 1 | `DELETE FROM Properties` не видаляє рядок, а робить soft delete (з `DeletedBy` із `SESSION_CONTEXT`) |
-| 2 | `trg_Listings_PriceHistory` записує історію цін з автором |
-| 3 | процедура заповнює `UpdatedAt / UpdatedBy` |
-| 4 | `sp_Contract_Create` закриває оголошення, комісія = 3% від суми; повна оплата → договір `Completed` |
+| 1 | `DELETE FROM Properties` does not remove the row but soft deletes it (with `DeletedBy` from `SESSION_CONTEXT`) |
+| 2 | `trg_Listings_PriceHistory` records the price history with the author |
+| 3 | the procedure fills `UpdatedAt / UpdatedBy` |
+| 4 | `sp_Contract_Create` closes the listing, commission = 3% of the amount; full payment → contract `Completed` |
 | 5 | `fn_GetContractDebt`, `vw_OverduePayments` |
-| 6 | переплата відхиляється з кодом 50400 |
-| 7 | застарілий `RowVersion` відхиляється з кодом 50409 |
+| 6 | an overpayment is rejected with code 50400 |
+| 7 | a stale `RowVersion` is rejected with code 50409 |
 | 8 | `fn_PropertiesByCity`, `fn_ListingsByAgent` |
-| 9 | помилка процедури всередині зовнішньої транзакції не ламає її (savepoint) |
+| 9 | a procedure error inside an outer transaction does not break it (savepoint) |
 
-**Інтеграційні тести** (`tests/RealEstate.Tests`, xUnit, `dotnet test`) — 4/4 пройдено:
+**Integration tests** (`tests/RealEstate.Tests`, xUnit, `dotnet test`) — 4/4 passed:
 
-| Тест | Що перевіряє |
+| Test | What it checks |
 |---|---|
-| `Deal_Commit_SavesAllEntities` | угода з 4 сутностей зберігається; тригер завершує договір, борг 0, комісія 30 000 |
-| `Deal_FailsOnPayment_RollsBackEverything` | помилка на кроці платежу → після `Rollback` у БД немає ні об'єкта, ні оголошення, ні договору |
-| `SoftDelete_HidesPropertyAndItsListings` | soft delete приховує об'єкт і його оголошення з View |
-| `UpdatePrice_WithStaleRowVersion_Throws409` | оптимістичне блокування |
+| `Deal_Commit_SavesAllEntities` | a deal of 4 entities is saved; the trigger completes the contract, debt 0, commission 30,000 |
+| `Deal_FailsOnPayment_RollsBackEverything` | failure at the payment step → after `Rollback` there is no property, listing or contract in the database |
+| `SoftDelete_HidesPropertyAndItsListings` | soft delete hides the property and its listings from the views |
+| `UpdatePrice_WithStaleRowVersion_Throws409` | optimistic locking |
 
-**Ручна перевірка API:** `POST /api/deals` → 201; угода з помилкою → 400, у БД нічого не з'являється; запит без `X-User-Id` → 400; видалення неіснуючого об'єкта → 404.
+**Manual API check:** `POST /api/deals` → 201; a deal with an error → 400 and nothing appears in the database; a request without `X-User-Id` → 400; deleting a non-existent property → 404.
 
-## 9. Висновки
+## 9. Conclusions
 
-1. Спроєктовано нормалізовану схему на 20 таблиць з усіма типами зв'язків (1:1, 1:N, M:N) і обмеженнями цілісності на рівні БД.
-2. Soft delete реалізовано на двох рівнях: процедурами (`sp_*_SoftDelete`) і тригерами `INSTEAD OF DELETE`, тож навіть звичайний `DELETE` не видаляє дані. Аудит змін заповнюють процедури й тригери.
-3. Бізнес-правила (комісія, закриття оголошення, заборона переплати, автозавершення договору, історія цін) виконуються в БД і не залежать від клієнта.
-4. Індекси шести видів підібрано під конкретні запити; filtered-індекси поєднуються з soft delete.
-5. Repository + Unit of Work дає атомарні операції над кількома сутностями: усі запити з коду йдуть через процедури й View, а кілька процедур виконуються в одній транзакції з повним відкатом при помилці.
+1. A normalized schema of 20 tables was designed with all relationship types (1:1, 1:N, M:N) and integrity constraints at the database level.
+2. Soft delete is implemented on two levels: procedures (`sp_*_SoftDelete`) and `INSTEAD OF DELETE` triggers, so even a plain `DELETE` does not remove data. Change audit is filled by procedures and triggers.
+3. Business rules (commission, closing the listing, overpayment ban, automatic contract completion, price history) run in the database and do not depend on the client.
+4. Six kinds of indexes are tailored to specific queries; filtered indexes work together with soft delete.
+5. Repository + Unit of Work provides atomic operations over several entities: all queries from code go through procedures and views, and several procedures run in one transaction with a full rollback on error.

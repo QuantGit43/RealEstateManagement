@@ -1,53 +1,53 @@
-# NoSQL для системи управління нерухомістю
+# NoSQL for the Real Estate Management System
 
-## 1. Види NoSQL баз
+## 1. Types of NoSQL databases
 
-| Вид | Модель даних | Приклади | Сильні сторони | Слабкі сторони |
+| Type | Data model | Examples | Strengths | Weaknesses |
 |---|---|---|---|---|
-| Key-value | ключ → значення (рядок, hash, list, set, sorted set) | Redis, Memcached, DynamoDB | O(1) доступ за ключем, TTL, атомарні лічильники, дуже низька затримка (в пам'яті) | Немає запитів за значенням, обсяг обмежений RAM, слабка модель зв'язків |
-| Документна | JSON/BSON-документи з вкладеними об'єктами й масивами | MongoDB, Couchbase, CosmosDB | Гнучка схема, весь агрегат в одному документі (без JOIN), індекси по вкладених полях і масивах | Дублювання даних, оновлення спільних даних у багатьох документах, слабкі міжколекційні зв'язки |
-| Колонкова (wide-column) | рядок → набір колонок, партиціювання за ключем | Cassandra, ScyllaDB, HBase | Масивний запис, горизонтальне масштабування, time-series | Запити тільки за ключем партиції, моделювання "від запиту", немає JOIN |
-| Графова | вузли + зв'язки з властивостями | Neo4j, ArangoDB, Neptune | Обхід зв'язків довільної глибини (рекомендації, шляхи) | Агрегації по великих наборах, горизонтальне масштабування |
-| Time-series | вимірювання з міткою часу | InfluxDB, TimescaleDB | Стиснення, downsampling, вікна часу | Тільки часові ряди |
-| Пошукова | інвертований індекс | Elasticsearch, OpenSearch | Повнотекстовий пошук, фасети, геопошук | Не є основним сховищем, eventual consistency |
+| Key-value | key → value (string, hash, list, set, sorted set) | Redis, Memcached, DynamoDB | O(1) access by key, TTL, atomic counters, very low latency (in memory) | No queries by value, size limited by RAM, weak relationship model |
+| Document | JSON/BSON documents with nested objects and arrays | MongoDB, Couchbase, CosmosDB | Flexible schema, the whole aggregate in one document (no JOINs), indexes on nested fields and arrays | Data duplication, shared data has to be updated in many documents, weak cross-collection relationships |
+| Wide-column | row → set of columns, partitioned by key | Cassandra, ScyllaDB, HBase | Massive write throughput, horizontal scaling, time series | Queries only by partition key, "query-first" modelling, no JOINs |
+| Graph | nodes + relationships with properties | Neo4j, ArangoDB, Neptune | Traversing relationships of any depth (recommendations, paths) | Aggregations over large sets, horizontal scaling |
+| Time series | measurements with a timestamp | InfluxDB, TimescaleDB | Compression, downsampling, time windows | Time series only |
+| Search engine | inverted index | Elasticsearch, OpenSearch | Full-text search, facets, geo search | Not a primary store, eventual consistency |
 
-Загальні властивості NoSQL у порівнянні з реляційними БД:
-- схема задається застосунком (schema-on-read), а не БД;
-- денормалізація замість JOIN: дані моделюються під запити;
-- горизонтальне масштабування (шардинг) закладене в архітектуру;
-- компроміси CAP/BASE: часто eventual consistency, хоча MongoDB має ACID-транзакції на рівні документа (і multi-document з 4.0).
+Common NoSQL traits compared with relational databases:
+- the schema is defined by the application (schema-on-read), not by the database;
+- denormalization instead of JOINs: data is modelled around queries;
+- horizontal scaling (sharding) is part of the architecture;
+- CAP/BASE trade-offs: often eventual consistency, although MongoDB has ACID transactions at the document level (and multi-document since 4.0).
 
-## 2. Чи варто винести частину даних у NoSQL
+## 2. Should part of the data move to NoSQL?
 
-### Що лишається в SQL
-Договори, платежі, борги, комісії, аудит — це **гроші й юридичні зобов'язання**: потрібні FK, CHECK, транзакції між кількома сутностями, тригери, звітність з JOIN. Тут реляційна модель (ЛР1) — правильний вибір.
+### What stays in SQL
+Contracts, payments, debts, commissions and audit are **money and legal obligations**: they need FKs, CHECK constraints, transactions across several entities, triggers and reporting with JOINs. The relational model (Lab 1) is the right choice here.
 
-### Що виносимо в MongoDB: каталог оголошень (картка об'єкта)
-Нова вимога до застосунку: **публічний каталог** — пошук і перегляд оголошень відвідувачами сайту, з фільтрами за містом, типом, ціною, зручностями та **специфічними для типу атрибутами**:
-- квартира: висота стелі, балкон, тип опалення;
-- будинок: площа ділянки (сотки), гараж, кількість поверхів;
-- офіс: переговорні, open space, паркомісця;
-- комерційне приміщення: вітрина, потужність електромережі (кВт).
+### What moves to MongoDB: the listing catalog (property card)
+New application requirement: a **public catalog** — site visitors search and browse listings, filtering by city, type, price, amenities and **type-specific attributes**:
+- apartment: ceiling height, balcony, heating type;
+- house: land area (in sotky, 1 sotka = 100 m²), garage, number of floors;
+- office: meeting rooms, open space, parking spots;
+- commercial premises: storefront, electrical capacity (kW).
 
-Аргументи **за** документну БД:
-1. **Профіль навантаження**: каталог — це 99% читань, записи рідкі (створення оголошення, зміна ціни). Картку вигідно зберігати готовою, а не збирати з таблиць при кожному перегляді.
-2. **Агрегат**: одна картка в SQL = `Listings` + `Properties` + `PropertyTypes` + `Addresses` + `Districts` + `Cities` + `Owners` + `Agents` + `Users` + `PropertyAmenities` + `Amenities` + `PropertyPhotos` + `PriceHistory` + `PropertyAttributes` — **14 таблиць**. У MongoDB — 1 документ з вкладеними `address`, `agent`, `photos[]`, `amenities[]`, `priceHistory[]`, `attributes{}`.
-3. **Гнучка схема**: атрибути різні для кожного типу і з'являються нові. У SQL це або EAV-таблиця (`PropertyAttributes(PropertyId, AttrKey, NumValue, TextValue)`) з JOIN на кожен фільтр, або ALTER TABLE на кожен новий атрибут. У MongoDB — просто нове поле + wildcard-індекс `attributes.$**`.
-4. **Масштабування читань**: каталог можна реплікувати/шардити за містом незалежно від транзакційної БД.
+Arguments **for** a document database:
+1. **Workload profile**: the catalog is ~99% reads; writes are rare (new listing, price change). It pays to store the card ready-made instead of assembling it from tables on every view.
+2. **Aggregate**: one card in SQL = `Listings` + `Properties` + `PropertyTypes` + `Addresses` + `Districts` + `Cities` + `Owners` + `Agents` + `Users` + `PropertyAmenities` + `Amenities` + `PropertyPhotos` + `PriceHistory` + `PropertyAttributes` — **14 tables**. In MongoDB it is 1 document with nested `address`, `agent`, `photos[]`, `amenities[]`, `priceHistory[]`, `attributes{}`.
+3. **Flexible schema**: attributes differ per type and new ones keep appearing. In SQL this is either an EAV table (`PropertyAttributes(PropertyId, AttrKey, NumValue, TextValue)`) with a JOIN per filter, or an `ALTER TABLE` per new attribute. In MongoDB it is just a new field plus the wildcard index `attributes.$**`.
+4. **Read scaling**: the catalog can be replicated / sharded by city independently of the transactional database.
 
-Аргументи **проти** (чесні компроміси):
-1. **Дублювання**: ім'я й телефон агента, назва міста копіюються в кожен документ. Зміна імені агента = `updateMany` по тисячах документів замість UPDATE одного рядка (це окремий сценарій у тесті швидкодії).
-2. **Немає FK**: цілісність забезпечує застосунок; можливі "осиротілі" посилання.
-3. **Агрегації** (звіти по містах/типах) MongoDB вміє (aggregation pipeline), але SQL з індексами тут не гірший.
-4. **Синхронізація**: джерело істини — SQL, каталог — похідна проєкція (оновлюється при зміні оголошення: outbox / подія / CDC). Eventual consistency каталогу прийнятна: відвідувач побачить нову ціну через секунди.
+Arguments **against** (honest trade-offs):
+1. **Duplication**: the agent's name and phone and the city name are copied into every document. Renaming an agent means `updateMany` over thousands of documents instead of updating one row (a separate scenario in the benchmark).
+2. **No FKs**: integrity is enforced by the application; orphaned references are possible.
+3. **Aggregations** (reports by city/type) are supported by MongoDB (aggregation pipeline), but SQL with indexes is at least as good here.
+4. **Synchronization**: SQL is the source of truth, the catalog is a derived projection (updated when a listing changes: outbox / event / CDC). Eventual consistency is acceptable for the catalog: a visitor sees a new price within seconds.
 
-**Висновок**: виносимо в MongoDB проєкцію "картка оголошення" для каталогу (read model, підхід CQRS). Транзакційні дані лишаються в SQL.
+**Conclusion**: the "listing card" projection for the catalog moves to MongoDB (read model, CQRS approach). Transactional data stays in SQL.
 
-### Redis (key-value) — допоміжні дані каталогу
-Не замінює жодну з БД, а закриває задачі, для яких і SQL, і MongoDB надто важкі:
-- лічильники переглядів оголошення (`INCR`) — тисячі інкрементів на секунду без блокувань рядків;
-- рейтинг "гарячих" оголошень (sorted set);
-- кеш готових карток з TTL;
-- "нещодавно переглянуті" для відвідувача (list з обрізанням);
-- тимчасове бронювання слоту перегляду (`SET NX EX`) — блокування, яке саме зникає;
-- сповіщення про нові оголошення (pub/sub).
+### Redis (key-value) — auxiliary catalog data
+Redis replaces neither database; it covers tasks for which both SQL and MongoDB are too heavy:
+- listing view counters (`INCR`) — thousands of increments per second without row locks;
+- ranking of "hot" listings (sorted set);
+- cache of ready-made cards with TTL;
+- "recently viewed" per visitor (trimmed list);
+- temporary booking of a viewing slot (`SET NX EX`) — a lock that expires by itself;
+- notifications about new listings (pub/sub).

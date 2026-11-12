@@ -1,26 +1,26 @@
 OK
-== 1. String: кеш картки оголошення з TTL
+== 1. String: listing card cache with TTL
 OK
-{"id":42,"title":"Квартира, 2 кімн., 64.5 м²","price":3650000}
+{"id":42,"title":"Apartment, 2 rooms, 64.5 m2","price":3650000}
 300
-== 2. Атомарні лічильники переглядів
+== 2. Atomic view counters
 1
 2
 12
 12
-== 3. Hash: профіль агента, поля читаються й змінюються окремо
+== 3. Hash: agent profile, fields read and changed individually
 4
-Андрій Мельник
+Andrii Melnyk
 13
 name
-Андрій Мельник
+Andrii Melnyk
 phone
 +380500000003
 rating
 4.8
 deals
 13
-== 4. Sorted set: рейтинг гарячих оголошень
+== 4. Sorted set: ranking of hot listings
 15
 7
 22
@@ -35,7 +35,7 @@ deals
 1
 42
 99
-== 5. List: останні 5 переглянутих оголошень клієнта
+== 5. List: last 5 listings viewed by a client
 6
 OK
 13
@@ -43,7 +43,7 @@ OK
 5
 99
 17
-== 6. Set: обрані оголошення, спільні для двох клієнтів
+== 6. Set: favourite listings shared by two clients
 3
 3
 17
@@ -54,12 +54,12 @@ OK
 99
 1
 3
-== 7. Бронювання слоту перегляду: SET NX EX (другий клієнт отримує відмову)
+== 7. Viewing slot booking: SET NX EX (the second client is refused)
 OK
 
 client:7
 600
-== 8. MULTI/EXEC: перегляд = лічильник + рейтинг + історія атомарно
+== 8. MULTI/EXEC: a view = counter + ranking + history atomically
 OK
 QUEUED
 QUEUED
@@ -67,34 +67,34 @@ QUEUED
 1
 8
 1
-== 9. GEO: оголошення в радіусі 3 км від центру Києва
+== 9. GEO: listings within 3 km of central Kyiv
 4
 42
 0.0001
 17
 1.4707
 467.5288
-== 10. Stream: журнал подій каталогу
-1794151461068-0
-1794151461068-1
+== 10. Stream: catalog event log
+1794482104515-0
+1794482104516-0
 2
-1794151461068-0
+1794482104515-0
 type
 created
 listingId
 100
 city
-Київ
-1794151461068-1
+Kyiv
+1794482104516-0
 type
 priceChanged
 listingId
 42
 price
 3500000
-== 11. Pub/Sub: сповіщення про нове оголошення (кількість підписників)
+== 11. Pub/Sub: new listing notification (number of subscribers)
 0
-== 12. Робота з ключами
+== 12. Working with keys
 0
 views:listing:42
 views:listing:17

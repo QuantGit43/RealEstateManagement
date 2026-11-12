@@ -1,26 +1,26 @@
-# Система управління нерухомістю — вимоги
+# Real Estate Management System — Requirements
 
-## Ролі
-- **Admin** — керує довідниками (міста, райони, типи, зручності) та користувачами.
-- **Manager** — контролює угоди, платежі, звіти по агентах.
-- **Agent** — веде оголошення, перегляди, укладає договори.
-- **Owner** (зовнішня особа) — власник об'єкта нерухомості.
-- **Client** (зовнішня особа) — покупець або орендар.
+## Roles
+- **Admin** — manages reference data (cities, districts, property types, amenities) and users.
+- **Manager** — oversees deals, payments and agent reports.
+- **Agent** — maintains listings and viewings, signs contracts.
+- **Owner** (external) — owner of a property.
+- **Client** (external) — buyer or tenant.
 
-## Функціональні вимоги
-1. Облік об'єктів нерухомості: тип, адреса (місто → район → адреса), площа, кімнати, поверх, рік побудови, зручності, фото.
-2. Оголошення про продаж або оренду об'єкта: ціна, валюта, відповідальний агент, статус (Active / Reserved / Closed).
-3. Кожна зміна ціни оголошення автоматично фіксується в історії цін.
-4. Запис клієнтів на перегляди об'єктів.
-5. Укладання договору купівлі-продажу або оренди за оголошенням. Після укладання оголошення закривається, комісія агента рахується автоматично.
-6. Облік платежів за договором (графік + факт оплати), контроль боргу та прострочених платежів. Договір купівлі завершується автоматично після повної оплати.
-7. Заявки на обслуговування/ремонт об'єкта.
-8. Відгуки клієнтів про агентів (рейтинг 1–5).
-9. Звіти: активні об'єкти та оголошення, показники агентів, прострочені платежі.
+## Functional requirements
+1. Property records: type, address (city → district → address), area, rooms, floor, year built, amenities, photos.
+2. Sale or rent listings for a property: price, currency, responsible agent, status (Active / Reserved / Closed).
+3. Every listing price change is recorded in the price history automatically.
+4. Clients can book property viewings.
+5. A sale or lease contract is signed for a listing. After signing, the listing is closed and the agent's commission is calculated automatically.
+6. Contract payments (schedule + actual payment), debt and overdue payment tracking. A sale contract is completed automatically once fully paid.
+7. Maintenance / repair requests for a property.
+8. Client reviews of agents (rating 1–5).
+9. Reports: active properties and listings, agent performance, overdue payments.
 
-## Нефункціональні вимоги
-- **Soft delete**: об'єкти, оголошення, клієнти, власники, агенти не видаляються фізично — ставиться `IsDeleted = 1`, `DeletedAt`, `DeletedBy`. Навіть звичайний `DELETE` для Properties/Listings перетворюється тригером на soft delete.
-- **Аудит**: для Properties, Listings, Contracts, Clients, Payments зберігаються `CreatedAt/CreatedBy`, `UpdatedAt/UpdatedBy`.
-- **Оптимістичне блокування** ціни оголошення через `rowversion`.
-- Код застосунку працює з БД **тільки** через збережені процедури (запис) та View / табличні функції (читання).
-- Кілька пов'язаних змін (об'єкт → оголошення → договір → платіж) виконуються атомарно в одній транзакції (Unit of Work).
+## Non-functional requirements
+- **Soft delete**: properties, listings, clients, owners and agents are never physically deleted — `IsDeleted = 1`, `DeletedAt`, `DeletedBy` are set instead. Even a plain `DELETE` on Properties/Listings is turned into a soft delete by a trigger.
+- **Audit**: Properties, Listings, Contracts, Clients and Payments store `CreatedAt/CreatedBy` and `UpdatedAt/UpdatedBy`.
+- **Optimistic locking** of the listing price via `rowversion`.
+- The application accesses the database **only** through stored procedures (writes) and views / table-valued functions (reads).
+- Several related changes (property → listing → contract → payment) run atomically in one transaction (Unit of Work).

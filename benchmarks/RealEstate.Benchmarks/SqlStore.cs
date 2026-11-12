@@ -19,8 +19,8 @@ public sealed class SqlStore(string connectionString)
         await using (var c = await OpenAsync())
             await c.ExecuteAsync("INSERT dbo.Roles (Name) VALUES (N'Admin'), (N'Manager'), (N'Agent');");
 
-        var users = new List<object?[]> { new object?[] { 1, 1, "admin@bench.example", "Адміністратор", null },
-                                          new object?[] { 2, 2, "manager@bench.example", "Менеджер", null } };
+        var users = new List<object?[]> { new object?[] { 1, 1, "admin@bench.example", "Administrator", null },
+                                          new object?[] { 2, 2, "manager@bench.example", "Manager", null } };
         for (var a = 1; a <= DataGenerator.AgentCount; a++)
             users.Add([a + 2, 3, $"agent{a}@bench.example", DataGenerator.AgentName(a), DataGenerator.AgentPhone(a)]);
         await BulkAsync("dbo.Users", [("UserId", typeof(int)), ("RoleId", typeof(int)), ("Email", typeof(string)), ("FullName", typeof(string)), ("Phone", typeof(string))], users);

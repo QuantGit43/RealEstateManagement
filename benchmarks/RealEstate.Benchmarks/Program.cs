@@ -1,7 +1,10 @@
 using System.Diagnostics;
+using System.Globalization;
 using MongoDB.Bson;
 using RealEstate.Benchmarks;
 using StackExchange.Redis;
+
+CultureInfo.DefaultThreadCurrentCulture = CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
 
 var listings = args.Length > 0 ? int.Parse(args[0]) : 10_000;
 
@@ -14,7 +17,7 @@ var sql = new SqlStore(sqlCs);
 var mongo = new MongoStore(mongoCs);
 var redis = (await ConnectionMultiplexer.ConnectAsync(redisCs)).GetDatabase();
 
-Console.WriteLine($"== Завантаження {listings:N0} оголошень");
+Console.WriteLine($"== Loading {listings:N0} listings");
 var gen = new DataGenerator(listings);
 var sqlLoad = new Stopwatch();
 var mongoLoad = new Stopwatch();
@@ -39,8 +42,8 @@ mongoLoad.Start(); await mongo.CreateIndexesAsync(); mongoLoad.Stop();
 
 var (sqlData, sqlIndex) = await sql.SizeAsync();
 var (mongoData, mongoIndex) = await mongo.SizeAsync();
-Console.WriteLine($"   SQL: {sqlLoad.Elapsed.TotalSeconds:F1} с, {sqlData / 1024.0:F1} МБ даних + {sqlIndex / 1024.0:F1} МБ індексів");
-Console.WriteLine($"   Mongo: {mongoLoad.Elapsed.TotalSeconds:F1} с, {mongoData / 1024.0:F1} МБ даних + {mongoIndex / 1024.0:F1} МБ індексів");
+Console.WriteLine($"   SQL: {sqlLoad.Elapsed.TotalSeconds:F1} s, {sqlData / 1024.0:F1} MB data + {sqlIndex / 1024.0:F1} MB indexes");
+Console.WriteLine($"   Mongo: {mongoLoad.Elapsed.TotalSeconds:F1} s, {mongoData / 1024.0:F1} MB data + {mongoIndex / 1024.0:F1} MB indexes");
 
 var sample = (await mongo.GetCardAsync(2))!;
 
@@ -49,20 +52,20 @@ var bench = new Bench(sql, mongo, redis, listings, Path.Combine(repoRoot, "sql",
 await bench.RunAsync();
 
 var header = $"""
-    # Результати: {listings:N0} оголошень
+    # Results: {listings:N0} listings
 
-    Дата: {DateTime.Now:yyyy-MM-dd HH:mm}. Машина: {Environment.ProcessorCount} логічних ядер, .NET {Environment.Version}.
-    БД у Docker (WSL2), однакові ліміти: 4 CPU, 2 ГБ RAM; кеш MongoDB 1 ГБ, пам'ять SQL Server 1,5 ГБ.
+    Date: {DateTime.Now:yyyy-MM-dd HH:mm}. Machine: {Environment.ProcessorCount} logical cores, .NET {Environment.Version}.
+    Databases in Docker (WSL2) with equal limits: 4 CPU, 2 GB RAM; MongoDB cache 1 GB, SQL Server memory 1.5 GB.
 
-    ## Обсяг і завантаження
+    ## Size and load
 
-    | БД | Дані, МБ | Індекси, МБ | Час завантаження, с |
+    | DB | Data, MB | Indexes, MB | Load time, s |
     |---|---:|---:|---:|
-    | SQL Server (14 таблиць) | {sqlData / 1024.0:F1} | {sqlIndex / 1024.0:F1} | {sqlLoad.Elapsed.TotalSeconds:F1} |
-    | MongoDB (1 колекція) | {mongoData / 1024.0:F1} | {mongoIndex / 1024.0:F1} | {mongoLoad.Elapsed.TotalSeconds:F1} |
+    | SQL Server (14 tables) | {sqlData / 1024.0:F1} | {sqlIndex / 1024.0:F1} | {sqlLoad.Elapsed.TotalSeconds:F1} |
+    | MongoDB (1 collection) | {mongoData / 1024.0:F1} | {mongoIndex / 1024.0:F1} | {mongoLoad.Elapsed.TotalSeconds:F1} |
 
-    Час завантаження — довідково: SQL Server завантажується з уже створеними індексами (bulk copy + перевірка FK + статистика),
-    MongoDB — insertMany без індексів, індекси будуються після.
+    Load time is for reference only: SQL Server loads with indexes already in place (bulk copy + FK validation + statistics),
+    MongoDB uses insertMany without indexes and builds them afterwards.
 
     """;
 
@@ -73,4 +76,4 @@ await File.WriteAllTextAsync(Path.Combine(outDir, $"results-{listings}.csv"),
     "listings;scenario;engine;mode;count;median_ms;p95_ms;mean_ms;ops_per_sec\n" + bench.ToCsv());
 await File.WriteAllTextAsync(Path.Combine(outDir, "sample-card.json"),
     sample.ToBsonDocument().ToJson(new MongoDB.Bson.IO.JsonWriterSettings { Indent = true }));
-Console.WriteLine($"== Збережено в {Path.GetFullPath(outDir)}");
+Console.WriteLine($"== Saved to {Path.GetFullPath(outDir)}");

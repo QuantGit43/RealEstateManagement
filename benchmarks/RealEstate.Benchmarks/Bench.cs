@@ -31,7 +31,7 @@ public sealed record Args(
         return new Args(r.Next(1, listings + 1), active, cityId, typeId, listingType,
             Math.Round(center * 0.8m), Math.Round(center * 1.2m),
             DataGenerator.Amenities[a1], DataGenerator.Amenities[a2], r.Next(5, 41),
-            r.Next(1, DataGenerator.AgentCount + 1), $"Агент {r.Next(1_000_000)}", r.Next(100_000, 5_000_000), hot);
+            r.Next(1, DataGenerator.AgentCount + 1), $"Agent {r.Next(1_000_000)}", r.Next(100_000, 5_000_000), hot);
     }
 
     public static long ListChecksum(IEnumerable<int> ids)
@@ -60,14 +60,14 @@ public sealed class Bench(SqlStore sql, MongoStore mongo, IDatabase redis, int l
     {
         Scenario[] reads =
         [
-            new("S1", "Картка за Id", 50, 500,
+            new("S1", "Card by Id", 50, 500,
                 async a => (await sql.GetCardAsync(a.ListingId))?.Checksum() ?? 0,
                 async a => (await mongo.GetCardAsync(a.ListingId))?.Checksum() ?? 0),
-            new("S2", "Пошук: місто+тип+ціна, топ-20", 50, 500, sql.SearchAsync, mongo.SearchAsync),
-            new("S3", $"Глибока сторінка (skip {Args.DeepPageOffset})", 20, 200, sql.DeepPageAsync, mongo.DeepPageAsync),
-            new("S4", "Пошук за 2 зручностями", 20, 200, sql.AmenitiesAsync, mongo.AmenitiesAsync),
-            new("S5", "Фільтр за атрибутами (EAV / wildcard)", 20, 200, sql.AttributesAsync, mongo.AttributesAsync),
-            new("S6", "Звіт: середня ціна по містах", 3, 30, sql.AggregateAsync, mongo.AggregateAsync)
+            new("S2", "Search: city+type+price, top 20", 50, 500, sql.SearchAsync, mongo.SearchAsync),
+            new("S3", $"Deep page (skip {Args.DeepPageOffset})", 20, 200, sql.DeepPageAsync, mongo.DeepPageAsync),
+            new("S4", "Search by 2 amenities", 20, 200, sql.AmenitiesAsync, mongo.AmenitiesAsync),
+            new("S5", "Filter by attributes (EAV / wildcard)", 20, 200, sql.AttributesAsync, mongo.AttributesAsync),
+            new("S6", "Report: average price by city", 3, 30, sql.AggregateAsync, mongo.AggregateAsync)
         ];
         foreach (var s in reads) await RunScenarioAsync(s);
 
@@ -89,26 +89,26 @@ public sealed class Bench(SqlStore sql, MongoStore mongo, IDatabase redis, int l
         long renamedDocs = 0, renameCalls = 0;
         Scenario[] writes =
         [
-            new("S7", "Вставка нової картки", 30, 300,
+            new("S7", "Insert new card", 30, 300,
                 _ => sql.InsertCardAsync(sqlGen.CreateCard(sqlNext++)),
                 _ => mongo.InsertCardAsync(mongoGen.CreateCard(mongoNext++)), Verify: false),
-            new("S8", "Зміна ціни + історія", 30, 300, sql.UpdatePriceAsync, mongo.UpdatePriceAsync, Verify: false),
-            new("S9", "Перейменування агента", 2, 20, sql.RenameAgentAsync,
+            new("S8", "Price change + history", 30, 300, sql.UpdatePriceAsync, mongo.UpdatePriceAsync, Verify: false),
+            new("S9", "Rename agent", 2, 20, sql.RenameAgentAsync,
                 async a => { var n = await mongo.RenameAgentAsync(a); renamedDocs += n; renameCalls++; return n; }, Verify: false)
         ];
         foreach (var s in writes) await RunScenarioAsync(s);
-        _checks.Add($"S9: MongoDB оновлює в середньому {renamedDocs / Math.Max(1, renameCalls):N0} документів за виклик, SQL Server — 1 рядок Users");
+        _checks.Add($"S9: MongoDB updates {renamedDocs / Math.Max(1, renameCalls):N0} documents per call on average, SQL Server — 1 Users row");
 
-        Console.WriteLine("-- Створення indexed view vw_ListingSearch");
+        Console.WriteLine("-- Creating indexed view vw_ListingSearch");
         var started = Stopwatch.StartNew();
         await sql.CreateSearchViewAsync(indexedViewScript);
-        _checks.Add($"Побудова indexed view: {started.Elapsed.TotalSeconds:F1} с");
+        _checks.Add($"Indexed view build: {started.Elapsed.TotalSeconds:F1} s");
         Scenario[] withView =
         [
-            new("S2v", "Пошук: місто+тип+ціна, SQL через indexed view", 50, 500, sql.SearchViewAsync, mongo.SearchAsync),
-            new("S3v", $"Глибока сторінка, SQL через indexed view", 20, 200, sql.DeepPageViewAsync, mongo.DeepPageAsync),
-            writes[0] with { Id = "S7v", Title = "Вставка картки, SQL з indexed view" },
-            writes[1] with { Id = "S8v", Title = "Зміна ціни, SQL з indexed view" }
+            new("S2v", "Search: city+type+price, SQL via indexed view", 50, 500, sql.SearchViewAsync, mongo.SearchAsync),
+            new("S3v", $"Deep page, SQL via indexed view", 20, 200, sql.DeepPageViewAsync, mongo.DeepPageAsync),
+            writes[0] with { Id = "S7v", Title = "Insert card, SQL with indexed view" },
+            writes[1] with { Id = "S8v", Title = "Price change, SQL with indexed view" }
         ];
         foreach (var s in withView) await RunScenarioAsync(s);
         _results.Add(await ThroughputAsync("S2v", "SQL Server (indexed view)", sql.SearchViewAsync));
@@ -133,8 +133,8 @@ public sealed class Bench(SqlStore sql, MongoStore mongo, IDatabase redis, int l
             var a = Args.Next(r, listings);
             if (await s.Sql(a) == await s.Mongo(a)) ok++;
         }
-        _checks.Add($"{name}: {ok}/{total} збігів результатів SQL і MongoDB");
-        Console.WriteLine($"   перевірка результатів: {ok}/{total}");
+        _checks.Add($"{name}: {ok}/{total} SQL and MongoDB results match");
+        Console.WriteLine($"   result check: {ok}/{total}");
     }
 
     private async Task<Result> MeasureAsync(string scenario, string engine, int warmup, int iterations, Func<Args, Task<long>> op)
@@ -152,7 +152,7 @@ public sealed class Bench(SqlStore sql, MongoStore mongo, IDatabase redis, int l
             times[i] = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
         }
         total.Stop();
-        var result = Summarize(scenario, engine, "послідовно", times, iterations / total.Elapsed.TotalSeconds);
+        var result = Summarize(scenario, engine, "sequential", times, iterations / total.Elapsed.TotalSeconds);
         Console.WriteLine($"   {engine,-22} median {result.MedianMs,8:F2} ms   p95 {result.P95Ms,8:F2} ms");
         return result;
     }
@@ -175,8 +175,8 @@ public sealed class Bench(SqlStore sql, MongoStore mongo, IDatabase redis, int l
             return list;
         }));
         var times = lists.SelectMany(x => x).ToArray();
-        var result = Summarize(scenario, engine, $"{workers} потоків", times, times.Length / (double)seconds);
-        Console.WriteLine($"   {scenario} {engine,-22} {workers} потоків: {result.OpsPerSec,8:F0} оп/с, p95 {result.P95Ms:F2} ms");
+        var result = Summarize(scenario, engine, $"{workers} threads", times, times.Length / (double)seconds);
+        Console.WriteLine($"   {scenario} {engine,-22} {workers} threads: {result.OpsPerSec,8:F0} ops/s, p95 {result.P95Ms:F2} ms");
         return result;
     }
 
@@ -207,13 +207,13 @@ public sealed class Bench(SqlStore sql, MongoStore mongo, IDatabase redis, int l
 
     private async Task RunRedisCacheAsync()
     {
-        const string name = "S1 Картка за Id";
+        const string name = "S1 Card by Id";
         await redis.ExecuteAsync("FLUSHDB");
         var r = new Random(Seed);
         for (var i = 0; i < 550; i++) await CacheAsideAsync(Args.Next(r, listings).ListingId);
         _cacheHits = _cacheMisses = 0;
-        _results.Add(await MeasureAsync(name, "Redis (кеш-хіт)", 0, 500, a => CacheAsideAsync(a.ListingId)));
-        _checks.Add($"Redis, послідовно: {_cacheHits} попадань, {_cacheMisses} промахів");
+        _results.Add(await MeasureAsync(name, "Redis (cache hit)", 0, 500, a => CacheAsideAsync(a.ListingId)));
+        _checks.Add($"Redis, sequential: {_cacheHits} hits, {_cacheMisses} misses");
     }
 
     private async Task RedisThroughputAsync(string scenario, Func<Args, Task<long>> op)
@@ -222,25 +222,25 @@ public sealed class Bench(SqlStore sql, MongoStore mongo, IDatabase redis, int l
         _cacheHits = _cacheMisses = 0;
         _results.Add(await ThroughputAsync(scenario, "Redis (cache-aside)", op));
         var total = Math.Max(1, _cacheHits + _cacheMisses);
-        _checks.Add($"Redis {scenario}, 16 потоків з порожнього кешу: {_cacheHits:N0} попадань / {_cacheMisses:N0} промахів ({100.0 * _cacheHits / total:F0}% hit)");
+        _checks.Add($"Redis {scenario}, 16 threads from an empty cache: {_cacheHits:N0} hits / {_cacheMisses:N0} misses ({100.0 * _cacheHits / total:F0}% hit)");
     }
 
     public string ToMarkdown(string header)
     {
         var sb = new StringBuilder(header);
-        sb.AppendLine("\n## Перевірка еквівалентності результатів\n");
+        sb.AppendLine("\n## Result equivalence check\n");
         foreach (var c in _checks) sb.AppendLine($"- {c}");
 
-        sb.AppendLine("\n## Послідовні виклики (1 клієнт)\n");
-        sb.AppendLine("| Сценарій | БД | N | Медіана, мс | p95, мс | Середнє, мс | оп/с |");
+        sb.AppendLine("\n## Sequential calls (1 client)\n");
+        sb.AppendLine("| Scenario | DB | N | Median, ms | p95, ms | Mean, ms | ops/s |");
         sb.AppendLine("|---|---|---:|---:|---:|---:|---:|");
-        foreach (var x in _results.Where(x => x.Mode == "послідовно"))
+        foreach (var x in _results.Where(x => x.Mode == "sequential"))
             sb.AppendLine($"| {x.Scenario} | {x.Engine} | {x.Count} | {x.MedianMs:F2} | {x.P95Ms:F2} | {x.MeanMs:F2} | {x.OpsPerSec:F0} |");
 
-        sb.AppendLine("\n## Паралельне навантаження (10 с)\n");
-        sb.AppendLine("| Сценарій | БД | Режим | Операцій | оп/с | Медіана, мс | p95, мс |");
+        sb.AppendLine("\n## Concurrent load (10 s)\n");
+        sb.AppendLine("| Scenario | DB | Mode | Operations | ops/s | Median, ms | p95, ms |");
         sb.AppendLine("|---|---|---|---:|---:|---:|---:|");
-        foreach (var x in _results.Where(x => x.Mode != "послідовно"))
+        foreach (var x in _results.Where(x => x.Mode != "sequential"))
             sb.AppendLine($"| {x.Scenario} | {x.Engine} | {x.Mode} | {x.Count} | {x.OpsPerSec:F0} | {x.MedianMs:F2} | {x.P95Ms:F2} |");
         return sb.ToString();
     }

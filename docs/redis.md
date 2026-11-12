@@ -1,46 +1,46 @@
-# Redis (key-value): базові запити
+# Redis (key-value): basic queries
 
-Redis зберігає дані в пам'яті як `ключ -> значення`, де значення — одна зі структур даних. Немає схеми й мови запитів: кожна структура має власні атомарні команди. Однопотокове виконання команд = кожна команда атомарна без блокувань.
+Redis keeps data in memory as `key -> value`, where the value is one of several data structures. There is no schema and no query language: each structure has its own atomic commands. Commands run on a single thread, so every command is atomic without locks.
 
-Запуск: `docker compose up -d`, потім `.\redis\run-demo.ps1` (команди — [redis/demo.redis](../redis/demo.redis), вивід — [redis/demo-output.txt](../redis/demo-output.txt)). Інтерактивно: `docker compose exec redis redis-cli -n 1 --raw`.
+Run: `docker compose up -d`, then `.\redis\run-demo.ps1` (commands — [redis/demo.redis](../redis/demo.redis), output — [redis/demo-output.txt](../redis/demo-output.txt)). Interactive: `docker compose exec redis redis-cli -n 1 --raw`.
 
-Ключі іменуються з префіксом сутності через двокрапку (`card:42`, `views:listing:42`) — це конвенція, Redis її не перевіряє, але `SCAN MATCH views:*` знаходить ключі за шаблоном.
+Keys are named with an entity prefix and colons (`card:42`, `views:listing:42`). This is a convention that Redis does not enforce, but `SCAN MATCH views:*` finds keys by pattern.
 
-| # | Структура | Задача в каталозі нерухомості | Команди | Чому не SQL/MongoDB |
+| # | Structure | Task in the real estate catalog | Commands | Why not SQL/MongoDB |
 |---|---|---|---|---|
-| 1 | String + TTL | Кеш готової картки на 5 хв | `SET k v EX 300`, `GET`, `TTL` | Читання з пам'яті ~0.5 мс; запис сам зникає |
-| 2 | String-лічильник | Перегляди оголошення | `INCR`, `INCRBY` | Тисячі інкрементів/с без блокування рядка `Listings` |
-| 3 | Hash | Профіль агента (поля окремо) | `HSET`, `HGET`, `HINCRBY`, `HGETALL` | Змінити одне поле без перезапису всього значення |
-| 4 | Sorted set | Рейтинг "гарячих" оголошень | `ZINCRBY`, `ZREVRANGE ... WITHSCORES`, `ZREVRANK`, `ZRANGEBYSCORE` | Топ-N за O(log N), без `ORDER BY` по всій таблиці |
-| 5 | List | Останні 5 переглянутих клієнтом | `LPUSH`, `LTRIM 0 4`, `LRANGE` | Обмежена черга: старі елементи відрізаються |
-| 6 | Set | Обрані оголошення, спільні в двох клієнтів | `SADD`, `SINTER`, `SUNION`, `SISMEMBER`, `SCARD` | Операції над множинами на сервері |
-| 7 | String `NX EX` | Тимчасове бронювання слоту перегляду | `SET slot:42:... client:7 NX EX 600` | Другий `SET NX` повертає `nil` — розподілене блокування, яке саме зникає через 10 хв |
-| 8 | `MULTI/EXEC` | Перегляд: лічильник + рейтинг + історія разом | `MULTI`, ..., `EXEC` | Команди виконуються послідовно без втручання інших клієнтів |
-| 9 | Geo | Оголошення в радіусі 3 км | `GEOADD`, `GEOSEARCH ... BYRADIUS 3 km WITHDIST`, `GEODIST` | Геоіндекс поверх sorted set |
-| 10 | Stream | Журнал подій каталогу (created, priceChanged) | `XADD * ...`, `XLEN`, `XRANGE` | Append-only лог з Id за часом, можна читати групами споживачів |
-| 11 | Pub/Sub | Сповіщення про нове оголошення | `PUBLISH channel msg` (повертає кількість підписників) | Доставка підписникам без збереження |
-| 12 | Ключі | Пошук і життєвий цикл | `SCAN MATCH`, `TYPE`, `EXPIRE`, `TTL`, `PERSIST`, `DEL`, `EXISTS`, `DBSIZE` | `SCAN` ітерує без блокування сервера (на відміну від `KEYS *`) |
+| 1 | String + TTL | Cache a ready-made card for 5 min | `SET k v EX 300`, `GET`, `TTL` | In-memory read ~0.5 ms; the entry expires by itself |
+| 2 | String counter | Listing views | `INCR`, `INCRBY` | Thousands of increments/s without locking a `Listings` row |
+| 3 | Hash | Agent profile (individual fields) | `HSET`, `HGET`, `HINCRBY`, `HGETALL` | Change one field without rewriting the whole value |
+| 4 | Sorted set | Ranking of "hot" listings | `ZINCRBY`, `ZREVRANGE ... WITHSCORES`, `ZREVRANK`, `ZRANGEBYSCORE` | Top-N in O(log N), no `ORDER BY` over the whole table |
+| 5 | List | Last 5 listings viewed by a client | `LPUSH`, `LTRIM 0 4`, `LRANGE` | Bounded queue: old items are trimmed |
+| 6 | Set | Favourite listings shared by two clients | `SADD`, `SINTER`, `SUNION`, `SISMEMBER`, `SCARD` | Set operations on the server |
+| 7 | String `NX EX` | Temporary booking of a viewing slot | `SET slot:42:... client:7 NX EX 600` | A second `SET NX` returns `nil` — a distributed lock that expires after 10 min |
+| 8 | `MULTI/EXEC` | A view = counter + ranking + history together | `MULTI`, ..., `EXEC` | Commands run in sequence with no other client in between |
+| 9 | Geo | Listings within 3 km | `GEOADD`, `GEOSEARCH ... BYRADIUS 3 km WITHDIST`, `GEODIST` | Geo index on top of a sorted set |
+| 10 | Stream | Catalog event log (created, priceChanged) | `XADD * ...`, `XLEN`, `XRANGE` | Append-only log with time-based Ids, readable by consumer groups |
+| 11 | Pub/Sub | Notification about a new listing | `PUBLISH channel msg` (returns the number of subscribers) | Delivery to subscribers without storage |
+| 12 | Keys | Lookup and lifecycle | `SCAN MATCH`, `TYPE`, `EXPIRE`, `TTL`, `PERSIST`, `DEL`, `EXISTS`, `DBSIZE` | `SCAN` iterates without blocking the server (unlike `KEYS *`) |
 
-## Що показав вивід
+## What the output shows
 
-- `TTL card:42` -> `300`: ключ зникне через 5 хв.
+- `TTL card:42` -> `300`: the key expires in 5 min.
 - `INCR` ×2 + `INCRBY 10` -> `12`.
-- `ZREVRANGE hot:listings 0 2 WITHSCORES` -> `99 (22), 42 (18), 17 (7)`: 42 набрав 15 + 3.
-- `LTRIM 0 4` після 6 `LPUSH` -> лишились 5 останніх: `13 8 5 99 17`.
+- `ZREVRANGE hot:listings 0 2 WITHSCORES` -> `99 (22), 42 (18), 17 (7)`: listing 42 scored 15 + 3.
+- `LTRIM 0 4` after 6 `LPUSH` -> the last 5 remain: `13 8 5 99 17`.
 - `SINTER` -> `17 99`.
-- Другий `SET ... NX` -> порожній рядок (`nil`): слот уже зайнятий `client:7`.
-- `GEOSEARCH` у радіусі 3 км від центру Києва -> 42 (0 км) і 17 (1.47 км); 5 (7 км) і 99 (Львів, 467 км) не потрапили.
-- `PUBLISH` -> `0` підписників (у демо ніхто не підписаний; `SUBSCRIBE channel:new-listings` у другому `redis-cli` отримає повідомлення).
-- `PERSIST` -> `TTL` став `-1` (ключ без терміну життя).
+- The second `SET ... NX` -> empty line (`nil`): the slot is already taken by `client:7`.
+- `GEOSEARCH` within 3 km of central Kyiv -> 42 (0 km) and 17 (1.47 km); 5 (7 km) and 99 (Lviv, 467 km) are not included.
+- `PUBLISH` -> `0` subscribers (nobody is subscribed in the demo; `SUBSCRIBE channel:new-listings` in a second `redis-cli` would receive the message).
+- `PERSIST` -> `TTL` becomes `-1` (the key no longer expires).
 
-## Redis у тесті швидкодії
-У [Bench.cs](../benchmarks/RealEstate.Benchmarks/Bench.cs) Redis — кеш карток за схемою **cache-aside** поверх MongoDB (`StackExchange.Redis`):
-1. `GET card:{id}` -> є: десеріалізувати JSON і повернути;
-2. немає: прочитати з MongoDB, `SET card:{id} json EX 600`.
+## Redis in the benchmark
+In [Bench.cs](../benchmarks/RealEstate.Benchmarks/Bench.cs) Redis is a card cache using the **cache-aside** pattern on top of MongoDB (`StackExchange.Redis`):
+1. `GET card:{id}` -> found: deserialize the JSON and return it;
+2. not found: read from MongoDB, `SET card:{id} json EX 600`.
 
-Результати — рядки "Redis" у [benchmarks/report.md](benchmarks/report.md).
+Results — the "Redis" rows in the [Lab 2 report](lab2-report.md).
 
-## Обмеження
-- Дані в RAM: каталог на 1M карток (~1.5 ГБ JSON) не поміститься в контейнер на 256 МБ — кешуються лише "гарячі" картки (LRU-витіснення `maxmemory-policy allkeys-lru`).
-- Персистентність (RDB/AOF) є, але Redis не є основним сховищем: при збої можна втратити останні записи.
-- Немає запитів за значенням: "знайти всі картки дешевше 1 млн" — не задача для Redis.
+## Limitations
+- Data lives in RAM: a catalog of 1M cards (~1.5 GB of JSON) does not fit into a 256 MB container — only "hot" cards are cached (LRU eviction, `maxmemory-policy allkeys-lru`).
+- Persistence (RDB/AOF) exists, but Redis is not the primary store: the latest writes can be lost on a crash.
+- No queries by value: "find all cards cheaper than 1M" is not a Redis task.
