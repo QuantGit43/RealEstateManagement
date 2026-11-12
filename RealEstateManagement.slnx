@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/RealEstate.Benchmarks/RealEstate.Benchmarks.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/RealEstate.Api/RealEstate.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/RealEstate.Tests/RealEstate.Tests.csproj" />
+  </Folder>
+</Solution>

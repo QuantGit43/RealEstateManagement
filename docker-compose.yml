@@ -1,0 +1,29 @@
+services:
+  mongo:
+    image: mongo:8.0
+    command: ["--wiredTigerCacheSizeGB", "1"]
+    ports: ["27018:27017"]
+    volumes: ["mongo-data:/data/db"]
+    cpus: 4
+    mem_limit: 2g
+
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2025-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "${MSSQL_SA_PASSWORD:-RealEstate_Bench1}"
+      MSSQL_MEMORY_LIMIT_MB: "1536"
+    ports: ["14333:1433"]
+    volumes: ["mssql-data:/var/opt/mssql"]
+    cpus: 4
+    mem_limit: 2g
+
+  redis:
+    image: redis:7.4
+    command: ["redis-server", "--maxmemory", "200mb", "--maxmemory-policy", "allkeys-lru"]
+    ports: ["6379:6379"]
+    mem_limit: 256m
+
+volumes:
+  mongo-data:
+  mssql-data:

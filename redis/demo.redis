@@ -1,0 +1,67 @@
+FLUSHDB
+ECHO "== 1. String: кеш картки оголошення з TTL"
+SET card:42 "{\"id\":42,\"title\":\"Квартира, 2 кімн., 64.5 м²\",\"price\":3650000}" EX 300
+GET card:42
+TTL card:42
+ECHO "== 2. Атомарні лічильники переглядів"
+INCR views:listing:42
+INCR views:listing:42
+INCRBY views:listing:42 10
+GET views:listing:42
+ECHO "== 3. Hash: профіль агента, поля читаються й змінюються окремо"
+HSET agent:1 name "Андрій Мельник" phone "+380500000003" rating 4.8 deals 12
+HGET agent:1 name
+HINCRBY agent:1 deals 1
+HGETALL agent:1
+ECHO "== 4. Sorted set: рейтинг гарячих оголошень"
+ZINCRBY hot:listings 15 42
+ZINCRBY hot:listings 7 17
+ZINCRBY hot:listings 22 99
+ZINCRBY hot:listings 3 42
+ZREVRANGE hot:listings 0 2 WITHSCORES
+ZSCORE hot:listings 42
+ZREVRANK hot:listings 42
+ZRANGEBYSCORE hot:listings 10 +inf
+ECHO "== 5. List: останні 5 переглянутих оголошень клієнта"
+LPUSH recent:client:7 42 17 99 5 8 13
+LTRIM recent:client:7 0 4
+LRANGE recent:client:7 0 -1
+ECHO "== 6. Set: обрані оголошення, спільні для двох клієнтів"
+SADD fav:client:7 42 17 99
+SADD fav:client:9 17 99 5
+SINTER fav:client:7 fav:client:9
+SUNION fav:client:7 fav:client:9
+SISMEMBER fav:client:7 42
+SCARD fav:client:7
+ECHO "== 7. Бронювання слоту перегляду: SET NX EX (другий клієнт отримує відмову)"
+SET slot:listing:42:2026-11-10T15:00 client:7 NX EX 600
+SET slot:listing:42:2026-11-10T15:00 client:9 NX EX 600
+GET slot:listing:42:2026-11-10T15:00
+TTL slot:listing:42:2026-11-10T15:00
+ECHO "== 8. MULTI/EXEC: перегляд = лічильник + рейтинг + історія атомарно"
+MULTI
+INCR views:listing:17
+ZINCRBY hot:listings 1 17
+LPUSH recent:client:9 17
+EXEC
+ECHO "== 9. GEO: оголошення в радіусі 3 км від центру Києва"
+GEOADD geo:listings 30.5234 50.4501 42 30.5100 50.4400 17 30.6200 50.4300 5 24.0316 49.8397 99
+GEOSEARCH geo:listings FROMLONLAT 30.5234 50.4501 BYRADIUS 3 km ASC WITHDIST
+GEODIST geo:listings 42 99 km
+ECHO "== 10. Stream: журнал подій каталогу"
+XADD events:listings * type created listingId 100 city Київ
+XADD events:listings * type priceChanged listingId 42 price 3500000
+XLEN events:listings
+XRANGE events:listings - + COUNT 10
+ECHO "== 11. Pub/Sub: сповіщення про нове оголошення (кількість підписників)"
+PUBLISH channel:new-listings 100
+ECHO "== 12. Робота з ключами"
+SCAN 0 MATCH views:* COUNT 100
+TYPE hot:listings
+EXPIRE fav:client:9 60
+TTL fav:client:9
+PERSIST fav:client:9
+TTL fav:client:9
+DEL card:42
+EXISTS card:42
+DBSIZE

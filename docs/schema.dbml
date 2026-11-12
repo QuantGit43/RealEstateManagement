@@ -1,0 +1,233 @@
+Project RealEstateDb {
+  database_type: 'SQLServer'
+  Note: '''
+  20 таблиць. Soft delete (IsDeleted/DeletedAt/DeletedBy): Agents, Owners, Clients, Properties, Listings.
+  Аудит (CreatedAt/CreatedBy/UpdatedAt/UpdatedBy): Clients, Properties, Listings, Contracts, Payments.
+  '''
+}
+
+Table Roles {
+  RoleId int [pk, increment]
+  Name nvarchar(50) [not null, unique]
+}
+
+Table Users {
+  UserId int [pk, increment]
+  RoleId int [not null, ref: > Roles.RoleId]
+  Email nvarchar(255) [not null, unique]
+  FullName nvarchar(150) [not null]
+  Phone nvarchar(20)
+  IsActive bit [not null, default: 1]
+  CreatedAt datetime2 [not null, default: `sysutcdatetime()`]
+}
+
+Table Agents {
+  AgentId int [pk, increment]
+  UserId int [not null, unique, ref: - Users.UserId]
+  LicenseNo nvarchar(30) [not null, unique]
+  CommissionRate "decimal(5,4)" [not null, note: '0..0.2']
+  HireDate date [not null]
+  IsDeleted bit [not null, default: 0]
+  DeletedAt datetime2
+  DeletedBy int [ref: > Users.UserId]
+}
+
+Table Owners {
+  OwnerId int [pk, increment]
+  FullName nvarchar(150) [not null]
+  Phone nvarchar(20) [not null]
+  Email nvarchar(255)
+  CreatedAt datetime2 [not null, default: `sysutcdatetime()`]
+  IsDeleted bit [not null, default: 0]
+  DeletedAt datetime2
+  DeletedBy int [ref: > Users.UserId]
+}
+
+Table Clients {
+  ClientId int [pk, increment]
+  FullName nvarchar(150) [not null]
+  Phone nvarchar(20) [not null]
+  Email nvarchar(255)
+  ClientType nvarchar(10) [not null, note: 'Buyer | Tenant']
+  CreatedAt datetime2 [not null]
+  CreatedBy int [not null, ref: > Users.UserId]
+  UpdatedAt datetime2
+  UpdatedBy int [ref: > Users.UserId]
+  IsDeleted bit [not null, default: 0]
+  DeletedAt datetime2
+  DeletedBy int [ref: > Users.UserId]
+}
+
+Table Cities {
+  CityId int [pk, increment]
+  Name nvarchar(100) [not null, unique]
+  Region nvarchar(100) [not null]
+}
+
+Table Districts {
+  DistrictId int [pk, increment]
+  CityId int [not null, ref: > Cities.CityId]
+  Name nvarchar(100) [not null]
+  indexes { (CityId, Name) [unique] }
+}
+
+Table Addresses {
+  AddressId int [pk, increment]
+  DistrictId int [not null, ref: > Districts.DistrictId]
+  Street nvarchar(150) [not null]
+  Building nvarchar(10) [not null]
+  Apartment nvarchar(10)
+  PostalCode char(5)
+}
+
+Table PropertyTypes {
+  PropertyTypeId int [pk, increment]
+  Name nvarchar(50) [not null, unique]
+}
+
+Table Properties {
+  PropertyId int [pk, increment]
+  OwnerId int [not null, ref: > Owners.OwnerId]
+  PropertyTypeId int [not null, ref: > PropertyTypes.PropertyTypeId]
+  AddressId int [not null, ref: > Addresses.AddressId]
+  Title nvarchar(200) [not null]
+  Description nvarchar(max)
+  AreaSqm "decimal(9,2)" [not null, note: '> 0']
+  Rooms tinyint [not null]
+  Floor smallint
+  YearBuilt smallint
+  CreatedAt datetime2 [not null]
+  CreatedBy int [not null, ref: > Users.UserId]
+  UpdatedAt datetime2
+  UpdatedBy int [ref: > Users.UserId]
+  IsDeleted bit [not null, default: 0]
+  DeletedAt datetime2
+  DeletedBy int [ref: > Users.UserId]
+  indexes { OwnerId [name: 'IX_Properties_Owner_Active', note: 'filtered WHERE IsDeleted = 0'] }
+}
+
+Table Amenities {
+  AmenityId int [pk, increment]
+  Name nvarchar(50) [not null, unique]
+}
+
+Table PropertyAmenities {
+  PropertyId int [ref: > Properties.PropertyId]
+  AmenityId int [ref: > Amenities.AmenityId]
+  indexes { (PropertyId, AmenityId) [pk] }
+}
+
+Table PropertyPhotos {
+  PhotoId int [pk, increment]
+  PropertyId int [not null, ref: > Properties.PropertyId]
+  Url nvarchar(500) [not null]
+  IsMain bit [not null, default: 0]
+  SortOrder int [not null, default: 0]
+}
+
+Table PropertyAttributes {
+  PropertyId int [ref: > Properties.PropertyId]
+  AttrKey varchar(40) [note: 'landAreaSotky, hasGarage, ceilingHeight...']
+  NumValue "decimal(18,2)" [note: 'число або bool 0/1']
+  TextValue nvarchar(100)
+  indexes {
+    (PropertyId, AttrKey) [pk]
+    (AttrKey, NumValue) [name: 'IX_PropertyAttributes_Num']
+    (AttrKey, TextValue) [name: 'IX_PropertyAttributes_Text']
+  }
+}
+
+Table Listings {
+  ListingId int [pk, increment]
+  PropertyId int [not null, ref: > Properties.PropertyId]
+  AgentId int [not null, ref: > Agents.AgentId]
+  ListingType nvarchar(10) [not null, note: 'Sale | Rent']
+  Price "decimal(14,2)" [not null, note: '> 0']
+  Currency char(3) [not null, default: 'UAH']
+  Status nvarchar(10) [not null, default: 'Active', note: 'Active | Reserved | Closed']
+  ListedAt datetime2 [not null]
+  RowVersion rowversion
+  CreatedAt datetime2 [not null]
+  CreatedBy int [not null, ref: > Users.UserId]
+  UpdatedAt datetime2
+  UpdatedBy int [ref: > Users.UserId]
+  IsDeleted bit [not null, default: 0]
+  DeletedAt datetime2
+  DeletedBy int [ref: > Users.UserId]
+  indexes {
+    (Status, Price) [name: 'IX_Listings_Status_Price', note: 'INCLUDE (PropertyId, AgentId, ListingType)']
+    (PropertyId, ListingType) [name: 'IX_Listings_Property_Active', note: 'filtered WHERE IsDeleted = 0']
+  }
+}
+
+Table PriceHistory {
+  PriceHistoryId int [pk, increment]
+  ListingId int [not null, ref: > Listings.ListingId]
+  OldPrice "decimal(14,2)" [not null]
+  NewPrice "decimal(14,2)" [not null]
+  ChangedAt datetime2 [not null]
+  ChangedBy int [ref: > Users.UserId]
+  Note: 'Заповнюється тригером trg_Listings_PriceHistory'
+}
+
+Table Viewings {
+  ViewingId int [pk, increment]
+  ListingId int [not null, ref: > Listings.ListingId]
+  ClientId int [not null, ref: > Clients.ClientId]
+  AgentId int [not null, ref: > Agents.AgentId]
+  ScheduledAt datetime2 [not null]
+  Status nvarchar(10) [not null, note: 'Scheduled | Done | Cancelled']
+  Feedback nvarchar(500)
+}
+
+Table Contracts {
+  ContractId int [pk, increment]
+  ListingId int [not null, unique, ref: - Listings.ListingId]
+  ClientId int [not null, ref: > Clients.ClientId]
+  AgentId int [not null, ref: > Agents.AgentId]
+  ContractType nvarchar(10) [not null, note: 'Sale | Lease']
+  TotalAmount "decimal(14,2)" [not null]
+  CommissionAmount "decimal(14,2)" [not null, note: 'fn_CalcCommission']
+  StartDate date [not null]
+  EndDate date [note: '>= StartDate']
+  Status nvarchar(12) [not null, note: 'Active | Completed | Terminated']
+  SignedAt datetime2 [not null]
+  CreatedAt datetime2 [not null]
+  CreatedBy int [not null, ref: > Users.UserId]
+  UpdatedAt datetime2
+  UpdatedBy int [ref: > Users.UserId]
+}
+
+Table Payments {
+  PaymentId int [pk, increment]
+  ContractId int [not null, ref: > Contracts.ContractId]
+  Amount "decimal(14,2)" [not null, note: '> 0']
+  DueDate date [not null]
+  PaidAt datetime2 [note: 'NULL = ще не сплачено']
+  Method nvarchar(10) [not null, note: 'Cash | Card | Transfer']
+  CreatedAt datetime2 [not null]
+  CreatedBy int [not null, ref: > Users.UserId]
+  UpdatedAt datetime2
+  UpdatedBy int [ref: > Users.UserId]
+  Note: 'Nonclustered columnstore (ContractId, Amount, DueDate, PaidAt) для звітів'
+}
+
+Table MaintenanceRequests {
+  RequestId int [pk, increment]
+  PropertyId int [not null, ref: > Properties.PropertyId]
+  ClientId int [ref: > Clients.ClientId]
+  Description nvarchar(1000) [not null]
+  Priority nvarchar(10) [not null, note: 'Low | Medium | High']
+  Status nvarchar(12) [not null, note: 'Open | InProgress | Done']
+  CreatedAt datetime2 [not null]
+  ClosedAt datetime2
+}
+
+Table Reviews {
+  ReviewId int [pk, increment]
+  ClientId int [not null, ref: > Clients.ClientId]
+  AgentId int [not null, ref: > Agents.AgentId]
+  Rating tinyint [not null, note: '1..5']
+  Comment nvarchar(1000)
+  CreatedAt datetime2 [not null]
+}

@@ -1,0 +1,50 @@
+{
+  "_id" : 2,
+  "title" : "Квартира, 3 кімн., 25,5 м², Північний р-н",
+  "description" : "Власник, без комісії. Терміновий продаж.",
+  "typeId" : 1,
+  "type" : "Квартира",
+  "listingType" : "Rent",
+  "price" : { "$numberDecimal" : "10000" },
+  "currency" : "UAH",
+  "status" : "Active",
+  "listedAt" : { "$date" : "2025-07-23T03:26:00Z" },
+  "address" : {
+    "cityId" : 1,
+    "city" : "Київ",
+    "districtId" : 2,
+    "district" : "Північний",
+    "street" : "просп. Незалежності",
+    "building" : "141",
+    "apartment" : "188"
+  },
+  "areaSqm" : { "$numberDecimal" : "25.5" },
+  "rooms" : 3,
+  "floor" : 6,
+  "yearBuilt" : 1951,
+  "owner" : {
+    "_id" : 201520,
+    "name" : "Андрій Бондар (201520)",
+    "phone" : "+380670201520"
+  },
+  "agent" : {
+    "_id" : 104,
+    "name" : "Тарас Мельник",
+    "phone" : "+380500000104",
+    "licenseNo" : "LIC-B-00104"
+  },
+  "amenities" : ["Балкон", "Кондиціонер", "Охорона", "Тераса", "Басейн"],
+  "photos" : [{
+      "url" : "https://cdn.example/p/2/0.jpg",
+      "isMain" : true
+    }, {
+      "url" : "https://cdn.example/p/2/1.jpg",
+      "isMain" : false
+    }],
+  "priceHistory" : [],
+  "attributes" : {
+    "ceilingHeight" : 2.8700000000000001,
+    "hasBalcony" : true,
+    "heating" : "Центральне"
+  }
+}
